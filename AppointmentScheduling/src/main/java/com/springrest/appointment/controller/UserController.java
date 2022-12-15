@@ -29,6 +29,7 @@ public class UserController {
 	@GetMapping("/login") 
 	public User login(Principal principal) { //Dependency Injection: DI: IoC: Inversion Of Control
 		String username = principal.getName();
+		System.out.println("he"+username);
 		User user = userRepository.findByUsername(username);
 		user.setPassword("*******");
 		return user;

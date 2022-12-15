@@ -72,4 +72,17 @@ public class StudentController {
 		}
 		return listDto;
 	}
+	// Path: /api/student/all/username
+	@PostMapping("/all/username")
+	public StudentResponseDto getStudentByUsername(@RequestBody Student student) {
+		String username = student.getUser().getUsername();
+		
+		Student student2 = studentRepository.getStudentByUsername(username);
+		
+		StudentResponseDto dto = new StudentResponseDto();
+		dto.setId(student2.getId());
+		dto.setName(student2.getName());
+		
+		return dto;
+	}
 }

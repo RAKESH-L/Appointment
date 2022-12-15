@@ -12,6 +12,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
+import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -36,6 +37,7 @@ import com.springrest.appointment.repository.StudentRepository;
 
 @RestController
 @RequestMapping("/api/appointment")
+@CrossOrigin(origins = "http://localhost:8731/")
 public class AppointmentController {
 
 	@Autowired
@@ -62,6 +64,31 @@ public class AppointmentController {
 	@Value("${spring.mail.username}") 
     private String sender;
 	
+	// Path: /api/appointment/all/AppId/{id}
+	@GetMapping("/all/AppId/{id}")
+	public AppointmentResponseDto getAllAppointment(@PathVariable("id") Long id) {
+		
+		Optional<Appointment> optional = appointmentRepository.findById(id);
+		if(!optional.isPresent()) {
+			throw new RuntimeException("ID is Invalid");
+		}
+		
+		Appointment a = optional.get();
+		
+		AppointmentResponseDto dto = new AppointmentResponseDto();
+		dto.setId(a.getId());
+		dto.setCourseName(a.getCourse().getCourseName());
+		dto.setPrice(a.getCourse().getPrice());
+		dto.setTrainerName(a.getCourse().getTrainer().getName());
+		dto.setStartDate(a.getSlots().getStartDate());
+		dto.setEndDate(a.getSlots().getEndDate());
+		dto.setTime(a.getSlots().getTime());
+		dto.setAppointmentDate(a.getAppointmentDate());
+		dto.setStatus(a.getStatus());
+		
+		return dto;
+		
+	}
 	
 	// Path: /api/appointment/add/{cid}
 	@PostMapping("/add/{cid}/{sid}")
@@ -71,6 +98,8 @@ public class AppointmentController {
 												@PathVariable("sid") Long sid){
 		
 		String username = principal.getName();
+		System.out.println(username);
+		
 		
 		/* Fetch Student details */
 		Student student = studentRepository.getStudentByUsername(username);
@@ -225,6 +254,37 @@ public class AppointmentController {
 		return ResponseEntity.status(HttpStatus.OK).body("Appointment Status Updated");
 	}
 	
+	// Path: /api/appointment/all/appointment/{status}
+	@GetMapping("/all/appointment/{status}")
+	public List<AppointmentResponseDto> hetApprovedAppointment(Principal principal,
+									@PathVariable("status") String status) {
+		String username= principal.getName(); //Username of Admin
+		Student student = studentRepository.getStudentByUsername(username);
+		
+		Long id = student.getId();
+		/* Convert status into enum */
+		StudentAppointmentStatus statusEnum = StudentAppointmentStatus.valueOf(status); //Approved
+		
+		List<Appointment> appointments = appointmentRepository.getAppointmentByStudentAndStatus(id, statusEnum);
+		
+		List<AppointmentResponseDto> listDto = new ArrayList<>();
+		for(Appointment a : appointments) {
+			//convert a to dto
+			AppointmentResponseDto dto = new AppointmentResponseDto();
+			dto.setId(a.getId());
+			dto.setCourseName(a.getCourse().getCourseName());
+			dto.setPrice(a.getCourse().getPrice());
+			dto.setTrainerName(a.getCourse().getTrainer().getName());
+			dto.setStartDate(a.getSlots().getStartDate());
+			dto.setEndDate(a.getSlots().getEndDate());
+			dto.setTime(a.getSlots().getTime());
+			dto.setAppointmentDate(a.getAppointmentDate());
+			dto.setStatus(a.getStatus());
+			listDto.add(dto);
+		}
+		return listDto;
+	}
+	
 	/*
 	 	Path: /api/appointment/all/{status}
 	 	Fetch all Pending Appointment Status where admin can APPROVE or DENY the request based on availability of seats
@@ -255,4 +315,118 @@ public class AppointmentController {
 		}
 		return listDto;
 	}
+	
+	// Path: /api/appointment/all/student/{id}
+		@GetMapping("/all/student/{id}")
+		public List<AppointmentResponseDto> getAllAppointmentByStudentId(
+												@PathVariable("id") Long id) {
+			
+			List<Appointment> appointments = appointmentRepository.findByStudentId(id);
+			
+			List<AppointmentResponseDto> listDto = new ArrayList<>();
+			for(Appointment a : appointments) {
+				//convert a to dto
+				AppointmentResponseDto dto = new AppointmentResponseDto();
+				dto.setId(a.getId());
+				dto.setCourseName(a.getCourse().getCourseName());
+				dto.setPrice(a.getCourse().getPrice());
+				dto.setTrainerName(a.getCourse().getTrainer().getName());
+				dto.setStartDate(a.getSlots().getStartDate());
+				dto.setEndDate(a.getSlots().getEndDate());
+				dto.setTime(a.getSlots().getTime());
+				dto.setAppointmentDate(a.getAppointmentDate());
+				dto.setStatus(a.getStatus());
+				listDto.add(dto);
+			}
+			return listDto;
+			
+		}
+		// Path: /api/appointment/add/app/{cid}/{sid}
+		@PostMapping("/add/app/{cid}/{sid}")
+		public ResponseEntity<String> postApp(@RequestBody Appointment appointment,
+							@PathVariable("cid") Long cid,
+							@PathVariable("sid") Long sid) {
+			String username = appointment.getStudent().getUser().getUsername();
+			System.out.println(username);
+			/* Fetch Student details */
+			Student student = studentRepository.getStudentByUsername(username);
+			
+			/* Attach this Student to appointment */
+			appointment.setStudent(student);
+			
+			/*Fetch Course details*/
+			Optional<Course> optional = courseRepository.findById(cid);
+			
+			/* Validate courseId */
+			if(!optional.isPresent())
+				return  ResponseEntity.status(HttpStatus.BAD_REQUEST).body("Course ID is Invalid");
+			
+			Optional<Slots> optional2 = slotRepository.findById(sid);
+			
+			if(!optional2.isPresent())
+				return  ResponseEntity.status(HttpStatus.BAD_REQUEST).body("Slot ID is Invalid");
+			
+			Course course = optional.get();
+			/* Prepare Appointment Object */
+			Slots slots = optional2.get();
+			appointment.setCourse(course);
+			appointment.setSlots(slots);
+			appointment.setAppointmentDate(LocalDate.now());
+			/* Set the status type */
+			appointment.setStatus(StudentAppointmentStatus.PENDING);
+			
+			appointmentRepository.save(appointment);
+			
+			/*
+		 	Sending Confirmation mail to user
+		 	regarding Appointment Status
+			 */
+			// Creating a mail message
+			SimpleMailMessage mailMessage = new SimpleMailMessage();
+			
+			String msg = "Hi "+student.getName()+
+					" Your appointment with Trainer "+course.getTrainer().getName()+
+					" has been Booked with status "+StudentAppointmentStatus.PENDING+
+					" Futher details with Course Name "+course.getCourseName()+
+					" will be shared shortly"+
+					" Thank You";
+			// Setting up necessary details
+			mailMessage.setFrom(sender);
+			mailMessage.setTo(username);
+			mailMessage.setText(msg);
+			mailMessage.setSubject("Appointment Status of "+course.getCourseName());
+			
+			// Sending the mail
+			javaMailSender.send(mailMessage);
+			
+		
+			return ResponseEntity.status(HttpStatus.OK).body("Appointment Posted Successfully");
+		}
+		
+		@GetMapping("/all/student")
+		public List<AppointmentResponseDto> getAppointmentByStuId(Principal principal) {
+			String username= principal.getName();
+			/* Fetch Student details */
+			Student student = studentRepository.getStudentByUsername(username);
+			
+			Long id = student.getId();
+			List<Appointment> appointments = appointmentRepository.findByStudentId(id);
+			
+			List<AppointmentResponseDto> listDto = new ArrayList<>();
+			for(Appointment a : appointments) {
+				//convert a to dto
+				AppointmentResponseDto dto = new AppointmentResponseDto();
+				dto.setId(a.getId());
+				dto.setCourseName(a.getCourse().getCourseName());
+				dto.setPrice(a.getCourse().getPrice());
+				dto.setTrainerName(a.getCourse().getTrainer().getName());
+				dto.setStartDate(a.getSlots().getStartDate());
+				dto.setEndDate(a.getSlots().getEndDate());
+				dto.setTime(a.getSlots().getTime());
+				dto.setAppointmentDate(a.getAppointmentDate());
+				dto.setStatus(a.getStatus());
+				listDto.add(dto);
+			}
+			return listDto;
+		}
 }
